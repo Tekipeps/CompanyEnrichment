@@ -6,6 +6,10 @@ out
 dist
 *.tgz
 
+temp
+
+prisma/generated
+
 # code coverage
 coverage
 *.lcov
@@ -32,3 +36,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+/src/generated/prisma
+
+# database
+dev.db
+*.db

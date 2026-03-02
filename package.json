@@ -6,21 +6,34 @@
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
-    "test": "bun test"
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/jsdom": "^28.0.0",
+    "prisma": "^7.4.2"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.37",
     "@ctxprotocol/sdk": "^0.8.4",
+    "@google/genai": "^1.43.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@prisma/adapter-libsql": "^7.4.2",
+    "@prisma/client": "^7.4.2",
     "@types/express": "^5.0.6",
     "@types/node": "^25.3.3",
+    "ai": "^6.0.105",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "jsdom": "^28.1.0",
+    "scrapingbee": "^1.8.2",
     "zod": "^4.3.6"
   }
 }

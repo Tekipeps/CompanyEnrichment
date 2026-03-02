@@ -1,0 +1,22 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output = "./generated"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model CompanyEnrichment {
+  id          String   @id @default(cuid())
+  domain      String   @unique
+  name        String?
+  data        String   // JSON stringified intelligence payload
+  lastUpdated DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([domain])
+}
