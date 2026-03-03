@@ -2,19 +2,18 @@ import "dotenv/config";
 import { enrichCompany } from "./src/orchestrator/enrichment.js";
 
 async function main() {
-  const domain = "https://braudit.app";
-  console.log(`Starting local test for domain: ${domain}`);
+  const query = "Mugdevs"; // Can be a company name OR domain (e.g. "stripe.com")
+  const location = "Nigeria"; // e.g. "United States" to disambiguate
+  console.log(`Starting local test for: ${query}`);
 
-  if (!process.env.SCRAPING_BEE_API_KEY || !process.env.GEMINI_API_KEY) {
-    console.error(
-      "Missing required environment variables! Please set SCRAPING_BEE_API_KEY and GEMINI_API_KEY.",
-    );
+  if (!process.env.GEMINI_API_KEY) {
+    console.error("Missing required environment variable: GEMINI_API_KEY");
     process.exit(1);
   }
 
   try {
     console.time("EnrichmentDuration");
-    const result = await enrichCompany(domain);
+    const result = await enrichCompany(query, location);
     console.timeEnd("EnrichmentDuration");
 
     console.log("\n=================================");

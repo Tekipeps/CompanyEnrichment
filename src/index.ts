@@ -14,3 +14,6 @@ app.listen(PORT, () => {
   console.log(`📡 MCP endpoint: http://localhost:${PORT}/mcp`);
   console.log(`💚 Health check: http://localhost:${PORT}/health`);
 });
+
+// Keep the Bun process alive (Bun's event loop exits early unlike Node.js)
+process.stdin.resume();

@@ -1,120 +1,82 @@
 import { getCachedCompanyData, saveCompanyData } from "../services/db.js";
-import { searchGoogle } from "../services/google-search.js";
-import { scrapeLinkedInCompany } from "../services/linkedin-company-scraper.js";
-import { scrape } from "../services/scraper.js";
-import { synthesizeCompanyProfile } from "../agents/synthesis.js";
+import {
+  synthesizeCompanyProfile,
+  resolveCompanyDomain,
+} from "../agents/synthesis.js";
 import type { CompanyIntelligence } from "../types/enrichment.js";
 
 /**
  * Normalizes a domain input to a consistent bare format: "example.com"
  * Strips protocols, www prefix, trailing slashes, and paths.
+ * Returns null if the input looks like a plain company name (no dots).
  */
-const normalizeDomain = (input: string): string => {
+const tryNormalizeDomain = (input: string): string | null => {
   let d = input.trim().toLowerCase();
-  // Remove protocol
   d = d.replace(/^https?:\/\//, "");
-  // Remove www.
   d = d.replace(/^www\./, "");
-  // Remove trailing slash and any path
   d = d.replace(/\/.*$/, "");
-  return d;
+  // If it still has a dot it's likely a domain (e.g. "stripe.com")
+  return d.includes(".") ? d : null;
 };
 
+/**
+ * Enriches a company given either a domain or a company name.
+ * An optional location can be provided to disambiguate companies
+ * with the same name in different countries/cities.
+ */
 export const enrichCompany = async (
-  rawDomain: string,
+  query: string,
+  location?: string,
 ): Promise<CompanyIntelligence> => {
-  const domain = normalizeDomain(rawDomain);
-  console.log(`[Orchestrator] Starting enrichment for: ${domain}`);
+  // Use the domain as the cache key when it's clearly a domain.
+  // Otherwise, use AI to resolve the domain before checking the cache.
+  // Fall back to the raw query (lowercased) if domain resolution yields null.
+  let cacheKey = query.trim().toLowerCase();
+  const maybeDomain = tryNormalizeDomain(query);
+
+  if (maybeDomain) {
+    cacheKey = maybeDomain;
+  } else {
+    console.log(
+      `[Orchestrator] Attempting to resolve domain for: "${query}"${location ? ` (${location})` : ""}`,
+    );
+    const resolvedDomain = await resolveCompanyDomain(query, location);
+    if (resolvedDomain) {
+      console.log(`[Orchestrator] Resolved domain name: ${resolvedDomain}`);
+      cacheKey = resolvedDomain;
+    } else {
+      console.log(
+        `[Orchestrator] Could not resolve a domain for "${query}", falling back to query string key.`,
+      );
+    }
+  }
+
+  console.log(
+    `[Orchestrator] Starting enrichment for: "${query}"${location ? ` (${location})` : ""}`,
+  );
 
   // 1. Check cache
-  const cached = await getCachedCompanyData(domain);
+  const cached = await getCachedCompanyData(cacheKey);
   if (cached) {
-    console.log(`[Orchestrator] Cache hit for: ${domain}`);
+    console.log(`[Orchestrator] Cache hit for: ${cacheKey}`);
     return cached;
   }
 
-  // 2. Scrape the company's own website for primary data
-  console.log(`[Orchestrator] Scraping company website: ${domain}`);
-  let websiteData: string | null = null;
-  try {
-    const siteResult = await scrape({
-      url: domain,
-      extractLinks: false,
-      extractMetaTitle: true,
-      excludeHeaderAndFooter: false,
-    });
-
-    if (siteResult) {
-      if (typeof siteResult === "string") {
-        websiteData = siteResult;
-      } else if (
-        "content" in siteResult &&
-        typeof siteResult.content === "string"
-      ) {
-        websiteData = siteResult.content;
-      }
-    }
-
-    if (websiteData) {
-      console.log(
-        `[Orchestrator] Website scraped successfully (${websiteData.length} chars)`,
-      );
-    } else {
-      console.warn(`[Orchestrator] Website scrape returned no content`);
-    }
-  } catch (err) {
-    console.warn(
-      `[Orchestrator] Failed to scrape company website: ${err instanceof Error ? err.message : err}`,
-    );
-  }
-
-  // 3. Find LinkedIn Company URL via Google Search
-  let linkedInUrl: string | null = null;
-  const linkedInSearch = await searchGoogle(
-    `site:linkedin.com/company "${domain}"`,
-    { nbResults: 1 },
+  // 2. Synthesize via Gemini + Google Search grounding
+  console.log(
+    `[Orchestrator] Synthesizing intelligence via Gemini (Google Search)...`,
   );
+  const finalIntelligence = await synthesizeCompanyProfile(query, location);
 
-  if (linkedInSearch && linkedInSearch.organic_results.length > 0) {
-    linkedInUrl = linkedInSearch.organic_results[0]?.url || null;
-  }
-
-  // 4. Scrape LinkedIn Data
-  let linkedInData = null;
-  if (linkedInUrl) {
-    console.log(
-      `[Orchestrator] Found LinkedIn URL: ${linkedInUrl}, scraping...`,
-    );
-    const scrapeResult = await scrapeLinkedInCompany(linkedInUrl);
-    if (scrapeResult.success) {
-      linkedInData = scrapeResult.data ?? null;
-    } else {
-      console.warn(
-        `[Orchestrator] LinkedIn scrape failed: ${scrapeResult.error}`,
-      );
-    }
-  } else {
-    console.warn(`[Orchestrator] No LinkedIn URL found for: ${domain}`);
-  }
-
-  // 5. Synthesize all raw data via Gemini in a single LLM call
-  //    Pass: website content + LinkedIn data (no news search — it returns 0 results)
-  console.log(`[Orchestrator] Synthesizing intelligence via Gemini...`);
-  const finalIntelligence = await synthesizeCompanyProfile(
-    domain,
-    linkedInData ?? null,
-    websiteData,
-  );
-
-  // 6. Persist to cache
+  // 3. Persist to cache
   await saveCompanyData(
-    domain,
-    finalIntelligence.firmographics?.name || domain,
+    cacheKey,
+    finalIntelligence.firmographics?.name || cacheKey,
     finalIntelligence,
   );
 
   console.log(
-    `[Orchestrator] Enrichment complete for: ${domain} | confidence: ${finalIntelligence.dataQuality?.confidenceScore ?? "n/a"}`,
+    `[Orchestrator] Enrichment complete for: ${cacheKey} | confidence: ${finalIntelligence.dataQuality?.confidenceScore ?? "n/a"}`,
   );
 
   return finalIntelligence;
