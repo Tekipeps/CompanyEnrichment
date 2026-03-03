@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import type { CompanyIntelligence } from "../types/enrichment.js";
+import type { CompanyIntelligence } from "../types/index.js";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -209,22 +209,23 @@ Use Google Search to find the official website and domain for "${query}"${locati
 /**
  * Fast GoogleGenAI call to reliably identify the main website domain for a given
  * company name. Essential for correct cache utilization when the user enters a
- * plain name instead of a domain. Returns null if the company definitively has no website.
+ * plain name instead of a domain. Returns the company name in lowercase if the company
+ * definitively has no website.
  */
 export const resolveCompanyDomain = async (
   query: string,
   location?: string,
-): Promise<string | null> => {
+): Promise<string> => {
   const locationHint = location ? ` located in ${location}` : "";
   const prompt = `
 You are an expert firmographic data analyst.
-Task: Find the official website domain for the company named "${query}"${locationHint}.
+Task: Find the official website domain for the company represented by the query "${query}"${locationHint}.
 Research using Google Search.
 
 Output requirement: 
 - Return ONLY the bare domain string (e.g. "stripe.com") in your response.
 - Do NOT output "https://", "www.", paths, or any other conversational text whatsoever.
-- If the organization definitively does not have ANY website, output exactly "null".
+- If the organization definitively does not have ANY website, infer the official company name from the query and search results, and output ONLY that core company name in all lowercase.
 `;
 
   try {
@@ -238,24 +239,30 @@ Output requirement:
     });
 
     const rawResult = (response.text || "").trim().toLowerCase();
+    const fallback = query.trim().toLowerCase();
 
     // Safety check against conversational outputs or missing websites
-    if (!rawResult || rawResult === "null" || rawResult.includes(" ")) {
-      return null;
+    if (!rawResult || rawResult === "null") {
+      return fallback;
     }
 
     // Strip out remaining protocol/www just in case Gemini ignored instructions
-    let domain = rawResult;
-    domain = domain.replace(/^https?:\/\//, "");
-    domain = domain.replace(/^www\./, "");
-    domain = domain.replace(/\/.*$/, "");
+    let finalResult = rawResult;
+    finalResult = finalResult.replace(/^https?:\/\//, "");
+    finalResult = finalResult.replace(/^www\./, "");
+    finalResult = finalResult.replace(/\/.*$/, "");
 
-    return domain.includes(".") ? domain : null;
+    // If the model output multiple lines, it likely ignored our instructions and output conversational text
+    if (finalResult.includes("\\n")) {
+      return fallback;
+    }
+
+    return finalResult || fallback;
   } catch (e) {
     console.error(
       `[Synthesis Error] Failed to resolve domain for "${query}":`,
       e,
     );
-    return null; // Fallback gracefully internally
+    return query.trim().toLowerCase(); // Fallback gracefully internally
   }
 };

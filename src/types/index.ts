@@ -68,3 +68,17 @@ export const ENRICH_COMPANY_OUTPUT = z.object({
 });
 
 export type CompanyIntelligence = z.infer<typeof ENRICH_COMPANY_OUTPUT>;
+
+export const ENRICH_COMPANY_INPUT = z.object({
+  query: z
+    .string()
+    .describe(
+      "The company domain (e.g., stripe.com) OR company name (e.g., Stripe).",
+    ),
+  location: z
+    .string()
+    .optional()
+    .describe(
+      'Optional country or city to disambiguate companies with the same name (e.g., "United Kingdom" or "Lagos").',
+    ),
+});

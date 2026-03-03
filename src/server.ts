@@ -1,79 +1,66 @@
+// MCP server setup with HTTP transport
+import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { enrichCompany } from "./orchestrator/enrichment.js";
-import { ENRICH_COMPANY_OUTPUT } from "./types/enrichment.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { registerCompanyEnrichmentTool } from "./tools/enrich-company.js";
+import type { Request, Response } from "express";
+import { rateLimiter } from "./middleware/rateLimit.js";
+import { rapidApiAuth } from "./middleware/rapidApi.js";
+import { apiRouter } from "./routes/api.js";
 
-export const server = new McpServer({
-  name: "company-enrichment-mcp",
-  version: "0.1.0",
-});
+const PORT = Number(process.env.PORT) || 3000;
 
-// ============================================================================
-// Tool Schemas
-// ============================================================================
+export function createServer(): McpServer {
+  const server = new McpServer({
+    name: "CompanyEnrichment",
+    version: "1.0.0",
+  });
 
-const ENRICH_COMPANY_INPUT = {
-  query: z
-    .string()
-    .describe(
-      "The company domain (e.g., stripe.com) OR company name (e.g., Stripe). Google Search will resolve the correct company.",
-    ),
-  location: z
-    .string()
-    .optional()
-    .describe(
-      'Optional country or city to disambiguate companies with the same name (e.g., "United Kingdom" or "Lagos").',
-    ),
-};
+  registerCompanyEnrichmentTool(server);
 
-// ============================================================================
-// Tool Registrations
-// ============================================================================
+  return server;
+}
 
-/**
- * Enrich company data using a domain or company name.
- * outputSchema is REQUIRED by Context for dispute resolution and verification.
- */
-server.registerTool(
-  "enrich_company",
-  {
-    description:
-      "Enrich company data. Accepts a domain (e.g., stripe.com) or a company name (e.g., Stripe). Optionally supply a location (country/city) to disambiguate companies with the same name.",
-    inputSchema: ENRICH_COMPANY_INPUT,
-    outputSchema: ENRICH_COMPANY_OUTPUT,
-    _meta: {
-      surface: "both",
-      pricing: {
-        executeUsd: 0.1,
-      },
-    },
-  },
-  async ({ query, location }) => {
+export async function startServer(): Promise<void> {
+  const app = express();
+  app.use(express.json());
+
+  // Stateless MCP handler — each request gets its own transport + server instance
+  // This is safe because our tools are stateless (no shared mutable state)
+  app.post("/mcp", async (req: Request, res: Response) => {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless mode
+    });
+
+    const server = createServer();
+
     try {
-      const result = await enrichCompany(query, location);
-      const label = location ? `${query} (${location})` : query;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Company Intelligence: ${label}\n${JSON.stringify(result, null, 2)}`,
-          },
-        ],
-        structuredContent: result as unknown as Record<string, unknown>, // REQUIRED by Context
-      };
-    } catch (e) {
-      console.error(`[Tool Error] enrichment failed for ${query}:`, e);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Enrichment failed for ${query}: ${e instanceof Error ? e.message : "Unknown error"}`,
-          },
-        ],
-        isError: true,
-        structuredContent: { error: true },
-      };
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[CompanyEnrichment] MCP request error: ${message}\n`,
+      );
+      if (!res.headersSent) {
+        res.status(500).json({ error: true, code: "INTERNAL_ERROR", message });
+      }
     }
-  },
-);
+  });
+
+  // Health check endpoint — used by Railway/Render to confirm the service is up
+  app.get("/health", (_req: Request, res: Response) => {
+    res.json({ status: "ok", service: "CompanyEnrichment", version: "1.0.0" });
+  });
+
+  // REST API layer for RapidAPI — rate limit then auth then routes
+  app.use("/api", rateLimiter);
+  app.use("/api", rapidApiAuth);
+  app.use("/api", apiRouter);
+
+  app.listen(PORT, () => {
+    process.stderr.write(
+      `CompanyEnrichment MCP server running on port ${PORT}\n`,
+    );
+  });
+}

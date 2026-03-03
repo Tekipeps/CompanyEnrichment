@@ -1,19 +1,26 @@
 import "dotenv/config";
-import express from "express";
-import router from "./router";
+import { startServer } from "./server.js";
 
-const app = express();
-app.use(express.json());
-app.use(router);
+const REQUIRED_ENV_VARS = ["GEMINI_API_KEY"] as const;
 
-const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, () => {
-  console.log(
-    `🚀 Company Enrichment MCP Server running on http://localhost:${PORT}`,
+function validateEnv(): void {
+  const missing = REQUIRED_ENV_VARS.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required env vars: ${missing.join(", ")}. Copy .env.example to .env.`,
+    );
+  }
+}
+
+async function main(): Promise<void> {
+  validateEnv();
+  await startServer();
+}
+
+main().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(
+    `[CompanyEnrichmentMCP] Fatal startup error: ${message}\n`,
   );
-  console.log(`📡 MCP endpoint: http://localhost:${PORT}/mcp`);
-  console.log(`💚 Health check: http://localhost:${PORT}/health`);
+  process.exit(1);
 });
-
-// Keep the Bun process alive (Bun's event loop exits early unlike Node.js)
-process.stdin.resume();

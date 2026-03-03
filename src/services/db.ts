@@ -1,7 +1,6 @@
 import { PrismaClient } from "../../prisma/generated/client.js";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
-import { createClient } from "@libsql/client";
-import type { CompanyIntelligence } from "../types/enrichment.js";
+import type { CompanyIntelligence } from "../types/index.js";
 
 const adapter = new PrismaLibSql({
   url: process.env.DATABASE_URL || "file:./dev.db",

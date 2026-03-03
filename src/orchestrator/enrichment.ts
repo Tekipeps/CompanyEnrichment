@@ -3,7 +3,7 @@ import {
   synthesizeCompanyProfile,
   resolveCompanyDomain,
 } from "../agents/synthesis.js";
-import type { CompanyIntelligence } from "../types/enrichment.js";
+import type { CompanyIntelligence } from "../types/index.js";
 
 /**
  * Normalizes a domain input to a consistent bare format: "example.com"
