@@ -1,11 +1,13 @@
 -- CreateTable
 CREATE TABLE "CompanyEnrichment" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "domain" TEXT NOT NULL,
     "name" TEXT,
     "data" TEXT NOT NULL,
-    "lastUpdated" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "lastUpdated" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "CompanyEnrichment_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
