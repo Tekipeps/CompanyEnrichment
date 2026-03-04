@@ -7,6 +7,5 @@ Dockerfile
 .dockerignore
 docs
 prisma/generated
-bun.lock
 pnpm-lock.yaml
 pnpm-workspace.yaml
