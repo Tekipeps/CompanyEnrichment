@@ -22,15 +22,12 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
-
-# Create a data directory and expose it as a volume
-# This is where the SQLite database will reside to persist across container restarts
-RUN mkdir -p /app/data
-ENV DATABASE_URL="file:/app/data/dev.db"
-VOLUME ["/app/data"]
+COPY --from=builder /app/prisma.config.ts .
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
 # Expose the port the app runs on
 EXPOSE 3000
 
-# Run the compiled server using bun
-CMD ["bun", "dist/index.js"]
+# Run migrations then start the server
+ENTRYPOINT ["./entrypoint.sh"]

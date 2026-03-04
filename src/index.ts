@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { startServer } from "./server.js";
 
-const REQUIRED_ENV_VARS = ["GEMINI_API_KEY"] as const;
+const REQUIRED_ENV_VARS = ["GEMINI_API_KEY", "DATABASE_URL"] as const;
 
 function validateEnv(): void {
   const missing = REQUIRED_ENV_VARS.filter((k) => !process.env[k]);

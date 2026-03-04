@@ -12,20 +12,21 @@
     "test": "bun test",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "db:deploy": "prisma db deploy"
   },
   "dependencies": {
     "@ctxprotocol/sdk": "^0.8.4",
     "@google/genai": "^1.43.0",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "@prisma/adapter-libsql": "^7.4.2",
+    "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
-    "@types/node": "^20.14.0",
     "dotenv": "^16.4.5",
-    "zod": "^4.3.6",
-    "zod-to-json-schema": "^3.25.1"
+    "pg": "^8.19.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.18.0",
     "prisma": "^7.4.2",
     "typescript": "^5.4.5"
   },
