@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import type { CompanyIntelligence } from "../types/index.js";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -90,7 +90,7 @@ const COMPANY_INTELLIGENCE_SCHEMA = {
       ],
     },
   },
-  required: ["firmographics", "fundingHistory", "keyPersonnel", "dataQuality"],
+  required: ["firmographics", "fundingHistory", "keyPersonnel"],
 };
 
 // ---------------------------------------------------------------------------
@@ -180,6 +180,9 @@ Use Google Search to find the official website and domain for "${query}"${locati
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: COMPANY_INTELLIGENCE_SCHEMA,
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.MEDIUM,
+        },
         temperature: 0.1, // Low temperature for factual accuracy
       },
     });
@@ -234,6 +237,9 @@ Output requirement:
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.MINIMAL,
+        },
         temperature: 0.1, // Low temperature for high precision
       },
     });
