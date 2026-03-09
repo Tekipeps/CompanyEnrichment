@@ -1,107 +1,156 @@
-import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import type { CompanyIntelligence } from "../types/index.js";
+import {
+  searchCompanyProfile,
+  searchFundingHistory,
+  searchKeyPersonnel,
+  type ExaResult,
+} from "../data/exa.js";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const XAI_BASE_URL = "https://api.x.ai/v1";
+const XAI_API_KEY = process.env.XAI_API_KEY ?? "";
+
+const isDev = process.env.NODE_ENV !== "production";
 
 // ---------------------------------------------------------------------------
-// Response Schema (mirrors CompanyIntelligence + DataQuality)
+// JSON Schema for grok-3-mini structured output
 // ---------------------------------------------------------------------------
 
-const COMPANY_INTELLIGENCE_SCHEMA = {
-  type: Type.OBJECT,
+const COMPANY_INTELLIGENCE_JSON_SCHEMA = {
+  type: "object",
   properties: {
     firmographics: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
-        name: { type: Type.STRING },
-        domain: { type: Type.STRING },
-        industry: { type: Type.STRING },
-        description: { type: Type.STRING },
-        employeeCountEstimate: { type: Type.STRING },
-        headquarters: { type: Type.STRING },
-        foundedYear: { type: Type.NUMBER },
-        specialties: { type: Type.ARRAY, items: { type: Type.STRING } },
-        logoUrl: { type: Type.STRING },
+        name: { type: "string" },
+        domain: { type: "string" },
+        industry: { type: "string" },
+        description: { type: "string" },
+        employeeCountEstimate: { type: "string" },
+        headquarters: { type: "string" },
+        foundedYear: { type: "number" },
+        specialties: { type: "array", items: { type: "string" } },
+        logoUrl: { type: "string" },
       },
       required: ["name", "domain"],
     },
     fundingHistory: {
-      type: Type.ARRAY,
+      type: "array",
       items: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
-          date: { type: Type.STRING },
-          amount: { type: Type.STRING },
-          roundType: { type: Type.STRING },
-          leadInvestors: { type: Type.ARRAY, items: { type: Type.STRING } },
+          date: { type: "string" },
+          amount: { type: "string" },
+          roundType: { type: "string" },
+          leadInvestors: { type: "array", items: { type: "string" } },
         },
       },
     },
     keyPersonnel: {
-      type: Type.ARRAY,
+      type: "array",
       items: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
-          name: { type: Type.STRING },
-          title: { type: Type.STRING },
-          profileUrl: { type: Type.STRING },
-          photoUrl: { type: Type.STRING },
+          name: { type: "string" },
+          title: { type: "string" },
+          profileUrl: { type: "string" },
+          photoUrl: { type: "string" },
         },
         required: ["name", "title"],
       },
     },
     growthSignals: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
-        hiringVelocity: { type: Type.STRING },
-        recentLeadershipChanges: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING },
-        },
-        fundingSignals: { type: Type.STRING },
-        generalSignals: { type: Type.ARRAY, items: { type: Type.STRING } },
+        hiringVelocity: { type: "string" },
+        recentLeadershipChanges: { type: "array", items: { type: "string" } },
+        fundingSignals: { type: "string" },
+        generalSignals: { type: "array", items: { type: "string" } },
       },
     },
-    synthesis: { type: Type.STRING },
+    synthesis: { type: "string" },
     dataQuality: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
-        confidenceScore: { type: Type.NUMBER },
-        sourcesUsed: { type: Type.ARRAY, items: { type: Type.STRING } },
-        officialSourceFound: { type: Type.BOOLEAN },
+        confidenceScore: { type: "number" },
+        sourcesUsed: { type: "array", items: { type: "string" } },
+        officialSourceFound: { type: "boolean" },
         discrepancies: {
-          type: Type.ARRAY,
+          type: "array",
           items: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
-              field: { type: Type.STRING },
-              conflict: { type: Type.STRING },
-              resolution: { type: Type.STRING },
+              field: { type: "string" },
+              conflict: { type: "string" },
+              resolution: { type: "string" },
             },
             required: ["field", "conflict", "resolution"],
           },
         },
       },
-      required: [
-        "confidenceScore",
-        "sourcesUsed",
-        "officialSourceFound",
-        "discrepancies",
-      ],
+      required: ["confidenceScore", "sourcesUsed", "officialSourceFound", "discrepancies"],
     },
   },
-  required: ["firmographics", "fundingHistory", "keyPersonnel"],
+  required: ["firmographics", "fundingHistory", "keyPersonnel", "synthesis", "dataQuality"],
 };
 
 // ---------------------------------------------------------------------------
-// Main Export
+// Phase 2: grok-3-mini synthesis via /v1/chat/completions (no web_search)
 // ---------------------------------------------------------------------------
 
-/**
- * Synthesizes a structured CompanyIntelligence object for a given company.
- * Accepts either a domain (e.g. "stripe.com") or a company name (e.g. "Stripe").
- * An optional location narrows the search when multiple companies share the same name.
- */
+async function synthesizeWithGrok(
+  systemPrompt: string,
+  userContent: string,
+): Promise<Partial<CompanyIntelligence>> {
+  const res = await fetch(`${XAI_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${XAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "grok-4-1-fast-non-reasoning",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "CompanyIntelligence",
+          schema: COMPANY_INTELLIGENCE_JSON_SCHEMA,
+        },
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`xAI API error ${res.status}: ${err.slice(0, 300)}`);
+  }
+
+  const data = (await res.json()) as {
+    choices: Array<{ message: { content: string } }>;
+  };
+
+  const text = data.choices?.[0]?.message?.content ?? "{}";
+  return JSON.parse(text) as Partial<CompanyIntelligence>;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: format Exa results for the synthesis prompt
+// ---------------------------------------------------------------------------
+
+function formatResults(results: ExaResult[], label: string): string {
+  if (!results.length) return `[No ${label} results found]`;
+  return results
+    .map((r, i) => `[${label} ${i + 1}] ${r.title}\nURL: ${r.url}\n${r.text}`)
+    .join("\n---\n");
+}
+
+// ---------------------------------------------------------------------------
+// Main export
+// ---------------------------------------------------------------------------
+
 export const synthesizeCompanyProfile = async (
   query: string,
   location?: string,
@@ -111,164 +160,159 @@ export const synthesizeCompanyProfile = async (
   const subjectLine = isDomain
     ? `the company at domain "${query}"${location ? ` (${locationHint.trim()})` : ""}`
     : `the company named "${query}"${locationHint}`;
-  const prompt = `
-You are an expert financial and firmographic data analyst.
 
-Your task is to research ${subjectLine} and produce a clean, accurate Company Intelligence report.
+  if (isDev) console.log(`[Synthesis] Starting Exa+Grok synthesis for: ${subjectLine}`);
 
-${
-  isDomain
-    ? ""
-    : `**Step 1 — Identify the company:**
-Use Google Search to find the official website and domain for "${query}"${locationHint}. Use the discovered domain throughout the rest of your research.\n\n`
-}**Research the following using Google Search:**
-- Official company name
-- Industry / sector
-- Short company description
-- Estimated employee count (use ranges like "1,000–5,000" when exact numbers are unavailable)
-- Headquarters (city, country)
-- Year founded
-- Key specialties / product areas
-- Official logo URL (search for it on the company's website or LinkedIn)
+  // ---------------------------------------------------------------------------
+  // Phase 1: 3 parallel Exa searches
+  // ---------------------------------------------------------------------------
+  const t1 = Date.now();
 
-**Funding History**
-- Search: "${query} funding rounds", "${query} raised", "${query} series A B C"
-- For each round: date, amount raised, round type (Seed, Series A, etc.), lead investors
+  const [profileResults, fundingResults, personnelResults] = await Promise.all([
+    searchCompanyProfile(query, location),
+    searchFundingHistory(query),
+    searchKeyPersonnel(query),
+  ]);
 
-**Key Personnel**
-- Search: "${query} CEO founder executive team leadership"
-- Extract C-suite and VP-level names, titles, and LinkedIn profile URLs
+  if (isDev) console.log(`[Synthesis] Phase 1 — Exa search: ${Date.now() - t1}ms`);
 
-**Growth Signals**
-- Hiring velocity: is the company actively hiring? (check LinkedIn Jobs)
-- Recent leadership changes (new CEO, CFO, etc. in the last 12 months)
-- Funding signals (recent raise, rumoured raise)
-- General signals: expansions, product launches, partnerships, awards
+  // ---------------------------------------------------------------------------
+  // Phase 2: grok-3-mini structures the raw search results
+  // ---------------------------------------------------------------------------
+  const systemPrompt = `You are a firmographic data analyst. Extract structured company intelligence from the provided web search results.
 
-**Source Weighting (apply when data conflicts):**
-1. HIGHEST — Official company website (${query})
+Source Weighting (apply when data conflicts):
+1. HIGHEST — Official company website
 2. HIGH — LinkedIn company page
 3. MEDIUM — Reputable news outlets (TechCrunch, Bloomberg, Reuters, Forbes)
 4. LOW — Third-party aggregators (Crunchbase, PitchBook, ZoomInfo)
 
-**Discrepancy Detection:**
-- If two sources disagree on a value, record it in the "discrepancies" array:
-  - "field": the field name (e.g. "employeeCountEstimate")
-  - "conflict": what each source says
-  - "resolution": which value you chose and why
+Confidence Score (0.0–1.0): 0.9+ = multiple strong sources agree; 0.7–0.9 = one strong source with minor gaps; <0.7 = sparse data.
+sourcesUsed: List every source type that contributed (e.g. "Official Website", "LinkedIn").
+officialSourceFound: true if any result URL is the company's own website.
+synthesis: Write a 2–3 sentence executive summary of the company.
+If a field cannot be determined from the search results, omit it or leave it empty.
+Return ONLY valid JSON matching the schema.`;
 
-**Confidence Score (0.0–1.0):**
-- 0.9+ = multiple strong sources agree, rich data
-- 0.7–0.9 = one strong source with minor gaps
-- 0.5–0.7 = limited sources, some uncertainty
-- <0.5 = sparse data, high uncertainty
+  const userContent = `Research target: ${subjectLine}
 
-**sourcesUsed field:**
-- List every source type that contributed data (e.g. "Official Website (${query})", "LinkedIn", "Google Search", "TechCrunch")
-- Set officialSourceFound to true if you successfully retrieved data from the company's own website
+=== COMPANY PROFILE SEARCH RESULTS ===
+${formatResults(profileResults, "Profile")}
 
-**Output:**
-- In "synthesis", write a 2–3 sentence executive summary of the company.
-- Return ONLY valid JSON matching the required schema. Do not add any text outside JSON.
-`;
+=== FUNDING HISTORY SEARCH RESULTS ===
+${formatResults(fundingResults, "Funding")}
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: COMPANY_INTELLIGENCE_SCHEMA,
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.MEDIUM,
-        },
-        temperature: 0.1, // Low temperature for factual accuracy
-      },
-    });
+=== KEY PERSONNEL SEARCH RESULTS ===
+${formatResults(personnelResults, "Personnel")}
 
-    const raw = response.text || "{}";
-    const parsed = JSON.parse(raw) as CompanyIntelligence;
+Extract and structure the company intelligence from the above search results.`;
 
-    // Ensure required arrays always exist even if Gemini omits them
-    parsed.fundingHistory = parsed.fundingHistory ?? [];
-    parsed.keyPersonnel = parsed.keyPersonnel ?? [];
+  const t2 = Date.now();
+  const parsed = await synthesizeWithGrok(systemPrompt, userContent);
+  if (isDev) console.log(`[Synthesis] Phase 2 — Grok synthesis: ${Date.now() - t2}ms`);
+  if (isDev) console.log(`[Synthesis] Total: ${Date.now() - t1}ms`);
 
-    // Ensure firmographics domain is always set
-    if (parsed.firmographics) {
-      parsed.firmographics.domain =
-        parsed.firmographics.domain || (isDomain ? query : "");
-    }
+  const result: CompanyIntelligence = {
+    firmographics: parsed.firmographics ?? { name: query, domain: isDomain ? query : "" },
+    fundingHistory: parsed.fundingHistory ?? [],
+    keyPersonnel: parsed.keyPersonnel ?? [],
+    growthSignals: parsed.growthSignals,
+    synthesis: parsed.synthesis ?? "",
+    dataQuality: {
+      confidenceScore: parsed.dataQuality?.confidenceScore ?? 0.5,
+      sourcesUsed: parsed.dataQuality?.sourcesUsed ?? ["Web Search"],
+      officialSourceFound: parsed.dataQuality?.officialSourceFound ?? false,
+      discrepancies: parsed.dataQuality?.discrepancies ?? [],
+    },
+  };
 
-    return parsed;
-  } catch (e) {
-    console.error("[Synthesis Error] Failed to synthesize company profile:", e);
-    throw new Error(
-      `Failed to synthesize company profile: ${e instanceof Error ? e.message : String(e)}`,
-    );
+  if (result.firmographics && !result.firmographics.domain && isDomain) {
+    result.firmographics.domain = query;
   }
+
+  return result;
 };
 
 /**
- * Fast GoogleGenAI call to reliably identify the main website domain for a given
- * company name. Essential for correct cache utilization when the user enters a
- * plain name instead of a domain. Returns the company name in lowercase if the company
- * definitively has no website.
+ * Resolves a plain company name to its canonical domain.
+ * Fast path: Clearbit Autocomplete (~100ms).
+ * Slow path: grok-4-1-fast-non-reasoning via chat completions.
  */
 export const resolveCompanyDomain = async (
   query: string,
   location?: string,
 ): Promise<string> => {
-  const locationHint = location ? ` located in ${location}` : "";
-  const prompt = `
-You are an expert firmographic data analyst.
-Task: Find the official website domain for the company represented by the query "${query}"${locationHint}.
-Research using Google Search.
+  let clearbitHint: string | null = null;
 
-Output requirement: 
-- Return ONLY the bare domain string (e.g. "stripe.com") in your response.
-- Do NOT output "https://", "www.", paths, or any other conversational text whatsoever.
-- If the organization definitively does not have ANY website, infer the official company name from the query and search results, and output ONLY that core company name in all lowercase.
-`;
+  // 1. Fast Path: Clearbit Autocomplete
+  try {
+    const clearbitRes = await fetch(
+      `https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(query)}`,
+    );
+    if (clearbitRes.ok) {
+      const data = (await clearbitRes.json()) as Array<{ name?: string; domain: string }>;
+      if (data && data.length > 0 && data[0].domain) {
+        // Validate: only trust if the domain base OR company name exactly matches the query
+        const domainBase = data[0].domain.split(".")[0].toLowerCase().replace(/\W/g, "");
+        const nameNorm = (data[0].name ?? "").toLowerCase().replace(/\W/g, "");
+        const queryNorm = query.trim().toLowerCase().replace(/\W/g, "");
+        if (domainBase === queryNorm || nameNorm === queryNorm) {
+          return data[0].domain; // confident match — fast path
+        }
+        // Clearbit returned a different company; pass it to Grok as a hint
+        clearbitHint = data[0].domain;
+        if (isDev) console.log(`[Clearbit] Candidate "${clearbitHint}" doesn't match "${query}" — falling back to Grok`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[Clearbit] Failed for "${query}", falling back to Grok...`, err);
+  }
+
+  // 2. Slow Path: grok-4-1-fast-non-reasoning
+  const locationHint = location ? ` located in ${location}` : "";
+  const hintLine = clearbitHint
+    ? `Note: An autocomplete API suggested "${clearbitHint}" but this may be a different company.`
+    : "";
+  const prompt = `You are a firmographic data analyst.
+Task: Return the official website domain for the company "${query}"${locationHint}.
+${hintLine}
+
+Rules:
+- Return ONLY the bare domain (e.g. "stripe.com"). No protocol, no www, no path.
+- If the query is a product name (e.g. "jira"), return the parent company domain (e.g. "atlassian.com").
+- If no website exists, return the company name in lowercase with no spaces.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.MINIMAL,
-        },
-        temperature: 0.1, // Low temperature for high precision
+    const res = await fetch(`${XAI_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${XAI_API_KEY}`,
       },
+      body: JSON.stringify({
+        model: "grok-4-1-fast-non-reasoning",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+      }),
     });
 
-    const rawResult = (response.text || "").trim().toLowerCase();
+    if (!res.ok) throw new Error(`xAI ${res.status}`);
+
+    const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+    const rawResult = (data.choices?.[0]?.message?.content ?? "").trim().toLowerCase();
     const fallback = query.trim().toLowerCase();
 
-    // Safety check against conversational outputs or missing websites
-    if (!rawResult || rawResult === "null") {
-      return fallback;
-    }
+    if (!rawResult || rawResult === "null") return fallback;
 
-    // Strip out remaining protocol/www just in case Gemini ignored instructions
     let finalResult = rawResult;
     finalResult = finalResult.replace(/^https?:\/\//, "");
     finalResult = finalResult.replace(/^www\./, "");
     finalResult = finalResult.replace(/\/.*$/, "");
-
-    // If the model output multiple lines, it likely ignored our instructions and output conversational text
-    if (finalResult.includes("\\n")) {
-      return fallback;
-    }
+    finalResult = finalResult.split(/\s/)[0]; // take first word only
 
     return finalResult || fallback;
   } catch (e) {
-    console.error(
-      `[Synthesis Error] Failed to resolve domain for "${query}":`,
-      e,
-    );
-    return query.trim().toLowerCase(); // Fallback gracefully internally
+    console.error(`[Domain Resolution] Failed for "${query}":`, e);
+    return query.trim().toLowerCase();
   }
 };

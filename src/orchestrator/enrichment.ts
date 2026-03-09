@@ -5,6 +5,8 @@ import {
 } from "../agents/synthesis.js";
 import type { CompanyIntelligence } from "../types/index.js";
 
+const isDev = process.env.NODE_ENV !== "production";
+
 /**
  * Normalizes a domain input to a consistent bare format: "example.com"
  * Strips protocols, www prefix, trailing slashes, and paths.
@@ -37,35 +39,33 @@ export const enrichCompany = async (
   if (maybeDomain) {
     cacheKey = maybeDomain;
   } else {
-    console.log(
+    if (isDev) console.log(
       `[Orchestrator] Attempting to resolve domain for: "${query}"${location ? ` (${location})` : ""}`,
     );
     const resolvedDomain = await resolveCompanyDomain(query, location);
     if (resolvedDomain) {
-      console.log(`[Orchestrator] Resolved domain name: ${resolvedDomain}`);
+      if (isDev) console.log(`[Orchestrator] Resolved domain name: ${resolvedDomain}`);
       cacheKey = resolvedDomain;
     } else {
-      console.log(
+      if (isDev) console.log(
         `[Orchestrator] Could not resolve a domain for "${query}", falling back to query string key.`,
       );
     }
   }
 
-  console.log(
+  if (isDev) console.log(
     `[Orchestrator] Starting enrichment for: "${query}"${location ? ` (${location})` : ""}`,
   );
 
   // 1. Check cache
   const cached = await getCachedCompanyData(cacheKey);
   if (cached) {
-    console.log(`[Orchestrator] Cache hit for: ${cacheKey}`);
+    if (isDev) console.log(`[Orchestrator] Cache hit for: ${cacheKey}`);
     return cached;
   }
 
   // 2. Synthesize via Gemini + Google Search grounding
-  console.log(
-    `[Orchestrator] Synthesizing intelligence via Gemini (Google Search)...`,
-  );
+  if (isDev) console.log(`[Orchestrator] Synthesizing intelligence via Exa + Grok...`);
   const finalIntelligence = await synthesizeCompanyProfile(query, location);
 
   // 3. Persist to cache
@@ -75,7 +75,7 @@ export const enrichCompany = async (
     finalIntelligence,
   );
 
-  console.log(
+  if (isDev) console.log(
     `[Orchestrator] Enrichment complete for: ${cacheKey} | confidence: ${finalIntelligence.dataQuality?.confidenceScore ?? "n/a"}`,
   );
 

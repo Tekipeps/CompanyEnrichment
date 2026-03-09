@@ -2,6 +2,8 @@ import { PrismaClient } from "../../prisma/generated/client.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { CompanyIntelligence } from "../types/index.js";
 
+const isDev = process.env.NODE_ENV !== "production";
+
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
@@ -24,11 +26,11 @@ export const getCachedCompanyData = async (
     const timeSinceLastUpdate = now.getTime() - record.lastUpdated.getTime();
 
     if (timeSinceLastUpdate > CACHE_TTL_MS) {
-      console.log(`[Cache] Data for ${domain} is stale. Fetching new data.`);
+      if (isDev) console.log(`[Cache] Data for ${domain} is stale. Fetching new data.`);
       return null;
     }
 
-    console.log(`[Cache] Returning cached data for ${domain}`);
+    if (isDev) console.log(`[Cache] Returning cached data for ${domain}`);
     return JSON.parse(record.data) as CompanyIntelligence;
   } catch (error) {
     console.error("[Cache Error] Failed to retrieve data:", error);
@@ -55,7 +57,7 @@ export const saveCompanyData = async (
         data: JSON.stringify(data),
       },
     });
-    console.log(`[Cache] Saved data for ${domain}`);
+    if (isDev) console.log(`[Cache] Saved data for ${domain}`);
   } catch (error) {
     console.error("[Cache Error] Failed to save data:", error);
   }

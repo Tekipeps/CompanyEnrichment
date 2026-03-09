@@ -20,26 +20,51 @@ export function registerCompanyEnrichmentTool(server: McpServer): void {
         "Enriches a company with detailed information based on the company domain/name and location.",
       inputSchema,
       outputSchema,
+      _meta: {
+        surface: "both",
+        queryEligible: true,
+        latencyClass: "slow",
+        pricing: {
+          executeUsd: "0.1",
+        },
+      },
     },
     async (args) => {
       const { query, location } = args;
 
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Timed out after 28s")), 28_000),
+      );
+
       try {
         logger.info(`enrich_company called for: ${query}`);
 
-        const output = await enrichCompany(query, location);
+        const output = await Promise.race([
+          enrichCompany(query, location),
+          timeoutPromise,
+        ]);
 
         return {
           structuredContent: output as unknown as Record<string, unknown>,
           content: [{ type: "text" as const, text: JSON.stringify(output) }],
         } as unknown as CallToolResult;
       } catch (err: unknown) {
-        logger.error(`enrich_company failed for: ${query}`, {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error(`enrich_company failed for: ${query}`, { error: msg });
         return {
-          structuredContent: { error: true },
-          content: [{ type: "text" as const, text: "Enrichment failed" }],
+          structuredContent: {
+            firmographics: { name: query, domain: "" },
+            fundingHistory: [],
+            keyPersonnel: [],
+            synthesis: `Error: ${msg}`,
+            dataQuality: {
+              confidenceScore: 0,
+              sourcesUsed: [],
+              officialSourceFound: false,
+              discrepancies: [],
+            },
+          } as unknown as Record<string, unknown>,
+          content: [{ type: "text" as const, text: msg }],
           isError: true,
         } as unknown as CallToolResult;
       }
