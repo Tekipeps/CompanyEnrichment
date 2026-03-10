@@ -64,11 +64,22 @@ export const enrichCompany = async (
     return cached;
   }
 
-  // 2. Synthesize via Gemini + Google Search grounding
+  // 2. Synthesize via Exa + Grok
   if (isDev) console.log(`[Orchestrator] Synthesizing intelligence via Exa + Grok...`);
   const finalIntelligence = await synthesizeCompanyProfile(query, location);
 
-  // 3. Persist to cache
+  // 3. Use the synthesized domain as the canonical cache key when available —
+  //    it is more accurate than the pre-resolved one (e.g. Clearbit guessing wrong TLD).
+  const synthesizedDomain = finalIntelligence.firmographics?.domain?.trim().toLowerCase();
+  if (synthesizedDomain && synthesizedDomain !== cacheKey) {
+    if (isDev)
+      console.log(
+        `[Orchestrator] Canonical domain from synthesis: "${synthesizedDomain}" (was "${cacheKey}")`,
+      );
+    cacheKey = synthesizedDomain;
+  }
+
+  // 4. Persist to cache
   await saveCompanyData(
     cacheKey,
     finalIntelligence.firmographics?.name || cacheKey,

@@ -14,7 +14,7 @@ function mapResults(
   return results.map((r) => ({
     url: r.url ?? "",
     title: r.title ?? "",
-    text: (r.text ?? "").slice(0, 1000), // cap per result to control context size
+    text: (r.text ?? "").slice(0, 2000), // cap per result to control context size
   }));
 }
 

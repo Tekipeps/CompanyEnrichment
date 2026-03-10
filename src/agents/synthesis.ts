@@ -87,21 +87,32 @@ const COMPANY_INTELLIGENCE_JSON_SCHEMA = {
           },
         },
       },
-      required: ["confidenceScore", "sourcesUsed", "officialSourceFound", "discrepancies"],
+      required: [
+        "confidenceScore",
+        "sourcesUsed",
+        "officialSourceFound",
+        "discrepancies",
+      ],
     },
   },
-  required: ["firmographics", "fundingHistory", "keyPersonnel", "synthesis", "dataQuality"],
+  required: [
+    "firmographics",
+    "fundingHistory",
+    "keyPersonnel",
+    "synthesis",
+    "dataQuality",
+  ],
 };
 
 // ---------------------------------------------------------------------------
-// Phase 2: grok-3-mini synthesis via /v1/chat/completions (no web_search)
+// Phase 2: synthesis via Responses API with web_search for gap-filling
 // ---------------------------------------------------------------------------
 
 async function synthesizeWithGrok(
   systemPrompt: string,
   userContent: string,
 ): Promise<Partial<CompanyIntelligence>> {
-  const res = await fetch(`${XAI_BASE_URL}/chat/completions`, {
+  const res = await fetch(`${XAI_BASE_URL}/responses`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -109,15 +120,17 @@ async function synthesizeWithGrok(
     },
     body: JSON.stringify({
       model: "grok-4-1-fast-non-reasoning",
-      messages: [
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
+      tools: [{ type: "web_search" }],
+      text: {
+        format: {
+          type: "json_schema",
           name: "CompanyIntelligence",
           schema: COMPANY_INTELLIGENCE_JSON_SCHEMA,
+          strict: true,
         },
       },
     }),
@@ -129,10 +142,20 @@ async function synthesizeWithGrok(
   }
 
   const data = (await res.json()) as {
-    choices: Array<{ message: { content: string } }>;
+    output?: Array<{
+      type: string;
+      content?: Array<{ type: string; text?: string }>;
+    }>;
   };
 
-  const text = data.choices?.[0]?.message?.content ?? "{}";
+  const text =
+    data.output
+      ?.filter((item) => item.type === "message")
+      ?.flatMap((item) => item.content ?? [])
+      ?.filter((c) => c.type === "output_text")
+      ?.map((c) => c.text ?? "")
+      ?.join("") ?? "{}";
+
   return JSON.parse(text) as Partial<CompanyIntelligence>;
 }
 
@@ -141,9 +164,13 @@ async function synthesizeWithGrok(
 // ---------------------------------------------------------------------------
 
 function formatResults(results: ExaResult[], label: string): string {
-  if (!results.length) return `[No ${label} results found]`;
+  if (!results.length)
+    return `[No ${label} results found — treat any data from other sections for this topic as lower confidence]`;
   return results
-    .map((r, i) => `[${label} ${i + 1}] ${r.title}\nURL: ${r.url}\n${r.text}`)
+    .map(
+      (r, i) =>
+        `[${label} ${i + 1}]\nSOURCE: ${r.url}\nTITLE: ${r.title}\nCONTENT:\n${r.text}`,
+    )
     .join("\n---\n");
 }
 
@@ -161,7 +188,8 @@ export const synthesizeCompanyProfile = async (
     ? `the company at domain "${query}"${location ? ` (${locationHint.trim()})` : ""}`
     : `the company named "${query}"${locationHint}`;
 
-  if (isDev) console.log(`[Synthesis] Starting Exa+Grok synthesis for: ${subjectLine}`);
+  if (isDev)
+    console.log(`[Synthesis] Starting Exa+Grok synthesis for: ${subjectLine}`);
 
   // ---------------------------------------------------------------------------
   // Phase 1: 3 parallel Exa searches
@@ -174,50 +202,85 @@ export const synthesizeCompanyProfile = async (
     searchKeyPersonnel(query),
   ]);
 
-  if (isDev) console.log(`[Synthesis] Phase 1 — Exa search: ${Date.now() - t1}ms`);
+  if (isDev)
+    console.log(`[Synthesis] Phase 1 — Exa search: ${Date.now() - t1}ms`);
 
   // ---------------------------------------------------------------------------
   // Phase 2: grok-3-mini structures the raw search results
   // ---------------------------------------------------------------------------
-  const systemPrompt = `You are a firmographic data analyst. Extract structured company intelligence from the provided web search results.
+  const systemPrompt = `You are a firmographic data analyst. The search results below were retrieved from Exa, a neural web search engine. Each result includes a source URL, title, and extracted page text. Your job is to synthesise these into structured company intelligence.
 
-Source Weighting (apply when data conflicts):
-1. HIGHEST — Official company website
-2. HIGH — LinkedIn company page
-3. MEDIUM — Reputable news outlets (TechCrunch, Bloomberg, Reuters, Forbes)
-4. LOW — Third-party aggregators (Crunchbase, PitchBook, ZoomInfo)
+SOURCE RELIABILITY — use the URL domain to assign each result a tier before extracting data:
+  Tier 1 (HIGHEST): The company's own website (domain matches the company being researched), official press releases on company domain
+  Tier 2 (HIGH):    LinkedIn company page (linkedin.com/company/...), regulatory filings (sec.gov, companieshouse.gov.uk)
+  Tier 3 (MEDIUM):  Reputable business media — TechCrunch, Bloomberg, Reuters, Forbes, WSJ, CNBC, The Information; Crunchbase / PitchBook (reliable for funding rounds, treat headcount as estimates)
+  Tier 4 (LOW):     Unknown blogs, content farms, aggregators, ZoomInfo, Hoovers, Wikipedia (use only for founding year / basic facts)
 
-Confidence Score (0.0–1.0): 0.9+ = multiple strong sources agree; 0.7–0.9 = one strong source with minor gaps; <0.7 = sparse data.
-sourcesUsed: List every source type that contributed (e.g. "Official Website", "LinkedIn").
-officialSourceFound: true if any result URL is the company's own website.
-synthesis: Write a 2–3 sentence executive summary of the company.
-If a field cannot be determined from the search results, omit it or leave it empty.
+When sources conflict, always prefer the higher-tier source and log the conflict in dataQuality.discrepancies.
+
+CONFIDENCE SCORE RULES (0.0–1.0):
+  0.9–1.0  → Tier 1 source confirms key fields, OR two or more Tier 2 sources agree
+  0.7–0.89 → Single Tier 2 source, OR multiple consistent Tier 3 sources
+  0.5–0.69 → Only Tier 3–4 sources, or data is partial / sparse
+  <0.5     → Very few results, no recognisable sources, or significant unresolved conflicts
+
+MANDATORY FIELDS — these MUST be populated in every response, no exceptions:
+  synthesis:
+    Always write 2–3 sentences covering (1) what the company does, (2) its scale or stage, (3) any notable recent context (funding, acquisition, product launch). If data is sparse, write what you can confirm and acknowledge the uncertainty inline (e.g. "Limited public data is available, but…").
+
+  dataQuality.confidenceScore:
+    Always a number between 0.0 and 1.0. Never omit or null.
+
+  dataQuality.sourcesUsed:
+    Always list every source domain or type that contributed data, e.g. ["stripe.com (Official)", "LinkedIn", "TechCrunch"]. Never return an empty array unless you received zero search results.
+
+  dataQuality.officialSourceFound:
+    true if any result URL belongs to the company's own domain. false otherwise. Never omit.
+
+  dataQuality.discrepancies:
+    List every field where two or more sources disagreed, how you resolved it, and which source you trusted. Return [] only if there are genuinely no conflicts.
+
+For any other field that cannot be determined from the search results, omit it or leave it null — do NOT fabricate data.
+
+OUTPUT HYGIENE:
+Never mention internal tool names (Exa, web_search, etc.) anywhere in the JSON output — not in sourcesUsed, not in discrepancy descriptions, nowhere. Reference only the actual source (e.g. "LinkedIn", "TechCrunch", "braudit.app (Official)").
+
+WEB SEARCH GUIDANCE:
+You have access to web_search. Use it sparingly — only to fill fields that are genuinely absent or ambiguous in the Exa results above. Do NOT re-search for information already present in the Exa sections. Good candidates: an executive name that appears truncated, a funding amount missing from all three sources, or a headquarters city not mentioned anywhere.
+
 Return ONLY valid JSON matching the schema.`;
 
   const userContent = `Research target: ${subjectLine}
 
-=== COMPANY PROFILE SEARCH RESULTS ===
+=== COMPANY PROFILE SEARCH RESULTS (Exa) ===
 ${formatResults(profileResults, "Profile")}
 
-=== FUNDING HISTORY SEARCH RESULTS ===
+=== FUNDING HISTORY SEARCH RESULTS (Exa) ===
 ${formatResults(fundingResults, "Funding")}
 
-=== KEY PERSONNEL SEARCH RESULTS ===
+=== KEY PERSONNEL SEARCH RESULTS (Exa) ===
 ${formatResults(personnelResults, "Personnel")}
 
-Extract and structure the company intelligence from the above search results.`;
+Extract and structure the company intelligence from the above search results. Use web_search only for fields not covered by the Exa sections above.`;
 
   const t2 = Date.now();
   const parsed = await synthesizeWithGrok(systemPrompt, userContent);
-  if (isDev) console.log(`[Synthesis] Phase 2 — Grok synthesis: ${Date.now() - t2}ms`);
+  if (isDev)
+    console.log(`[Synthesis] Phase 2 — Grok synthesis: ${Date.now() - t2}ms`);
   if (isDev) console.log(`[Synthesis] Total: ${Date.now() - t1}ms`);
 
   const result: CompanyIntelligence = {
-    firmographics: parsed.firmographics ?? { name: query, domain: isDomain ? query : "" },
+    firmographics: parsed.firmographics ?? {
+      name: query,
+      domain: isDomain ? query : "",
+    },
     fundingHistory: parsed.fundingHistory ?? [],
     keyPersonnel: parsed.keyPersonnel ?? [],
     growthSignals: parsed.growthSignals,
-    synthesis: parsed.synthesis ?? "",
+    synthesis:
+      parsed.synthesis && parsed.synthesis.trim().length > 0
+        ? parsed.synthesis
+        : `${parsed.firmographics?.name ?? query} is a company for which limited public data was found at query time. Confidence in the returned fields is low — verify directly with the company or an authoritative business database.`,
     dataQuality: {
       confidenceScore: parsed.dataQuality?.confidenceScore ?? 0.5,
       sourcesUsed: parsed.dataQuality?.sourcesUsed ?? ["Web Search"],
@@ -250,10 +313,16 @@ export const resolveCompanyDomain = async (
       `https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(query)}`,
     );
     if (clearbitRes.ok) {
-      const data = (await clearbitRes.json()) as Array<{ name?: string; domain: string }>;
+      const data = (await clearbitRes.json()) as Array<{
+        name?: string;
+        domain: string;
+      }>;
       if (data && data.length > 0 && data[0].domain) {
         // Validate: only trust if the domain base OR company name exactly matches the query
-        const domainBase = data[0].domain.split(".")[0].toLowerCase().replace(/\W/g, "");
+        const domainBase = data[0].domain
+          .split(".")[0]
+          .toLowerCase()
+          .replace(/\W/g, "");
         const nameNorm = (data[0].name ?? "").toLowerCase().replace(/\W/g, "");
         const queryNorm = query.trim().toLowerCase().replace(/\W/g, "");
         if (domainBase === queryNorm || nameNorm === queryNorm) {
@@ -261,11 +330,17 @@ export const resolveCompanyDomain = async (
         }
         // Clearbit returned a different company; pass it to Grok as a hint
         clearbitHint = data[0].domain;
-        if (isDev) console.log(`[Clearbit] Candidate "${clearbitHint}" doesn't match "${query}" — falling back to Grok`);
+        if (isDev)
+          console.log(
+            `[Clearbit] Candidate "${clearbitHint}" doesn't match "${query}" — falling back to Grok`,
+          );
       }
     }
   } catch (err) {
-    console.warn(`[Clearbit] Failed for "${query}", falling back to Grok...`, err);
+    console.warn(
+      `[Clearbit] Failed for "${query}", falling back to Grok...`,
+      err,
+    );
   }
 
   // 2. Slow Path: grok-4-1-fast-non-reasoning
@@ -298,8 +373,12 @@ Rules:
 
     if (!res.ok) throw new Error(`xAI ${res.status}`);
 
-    const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-    const rawResult = (data.choices?.[0]?.message?.content ?? "").trim().toLowerCase();
+    const data = (await res.json()) as {
+      choices: Array<{ message: { content: string } }>;
+    };
+    const rawResult = (data.choices?.[0]?.message?.content ?? "")
+      .trim()
+      .toLowerCase();
     const fallback = query.trim().toLowerCase();
 
     if (!rawResult || rawResult === "null") return fallback;
