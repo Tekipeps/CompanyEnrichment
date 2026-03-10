@@ -16,16 +16,41 @@ export function registerCompanyEnrichmentTool(server: McpServer): void {
   server.registerTool(
     TOOL_NAME,
     {
-      description:
-        "Enriches a company with detailed information based on the company domain/name and location.",
+      description: `Enriches any company with firmographics, funding history, key personnel, and growth signals using live web data. Accepts a company name or domain and returns structured intelligence including industry, headcount, headquarters, founded year, funding rounds with investors, C-suite team with LinkedIn URLs, hiring velocity, and a 2-3 sentence executive synthesis.
+
+Features:
+- Accepts company name OR domain; auto-resolves product names to parent company (e.g. "jira" returns atlassian.com data)
+- Live Exa web search for fresh data on every cache miss; 30-day intelligent cache for repeat calls
+- Structured output: firmographics, funding rounds, key personnel with LinkedIn URLs, growth signals, data quality score
+- Source weighting: official site > LinkedIn > news outlets > aggregators; discrepancies logged with resolution
+- Confidence score (0-1) and sources list included on every response
+
+Try asking:
+- "What industry is ClickUp in and how many employees do they have?"
+- "Who are the key executives at Notion?"
+- "What is Vercel's latest funding round and valuation?"
+- "Give me a full company profile for linear.app"
+- "What growth signals exist for Zapier — hiring, funding, recent launches?"
+- "Who founded Retool and what is their total funding?"
+- "Compare the founding year and headquarters of Figma vs Canva"
+- "Is monday.com publicly listed? What is their ARR?"
+- "Find the CEO and CTO of a Nigerian fintech called Paystack"
+
+Agent tips:
+- Pass a domain (e.g. stripe.com) for fastest resolution; company names go through domain lookup first.
+- Use the location field to disambiguate companies sharing the same name across countries.
+- Results are cached for 30 days — repeat calls for the same company are near-instant.
+- Confidence score below 0.7 means sparse data; check the discrepancies array for conflicts.`,
       inputSchema,
       outputSchema,
       _meta: {
         surface: "both",
         queryEligible: true,
         latencyClass: "slow",
-        pricing: {
-          executeUsd: "0.1",
+        rateLimit: {
+          maxRequestsPerMinute: 20,
+          cooldownMs: 3000,
+          maxConcurrency: 5,
         },
       },
     },

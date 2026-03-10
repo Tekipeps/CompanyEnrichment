@@ -63,8 +63,8 @@ export const ENRICH_COMPANY_OUTPUT = z.object({
   fundingHistory: z.array(FundingRoundSchema),
   keyPersonnel: z.array(KeyPersonSchema),
   growthSignals: GrowthSignalsSchema.optional(),
-  synthesis: z.string().optional(),
-  dataQuality: DataQualitySchema.optional(),
+  synthesis: z.string(),
+  dataQuality: DataQualitySchema,
 });
 
 export type CompanyIntelligence = z.infer<typeof ENRICH_COMPANY_OUTPUT>;
