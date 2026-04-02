@@ -47,6 +47,9 @@ Agent tips:
         surface: "both",
         queryEligible: true,
         latencyClass: "slow",
+        pricing: {
+          executeUsd: "0.001",
+        },
         rateLimit: {
           maxRequestsPerMinute: 20,
           cooldownMs: 3000,

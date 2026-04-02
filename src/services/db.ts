@@ -1,10 +1,21 @@
 import { PrismaClient } from "../../prisma/generated/client.js";
 import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 import type { CompanyIntelligence } from "../types/index.js";
 
 const isDev = process.env.NODE_ENV !== "production";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+// Fail fast on unreachable DB — default TCP timeout is 20s+ which eats into
+// the tool's 28s budget. 3s is enough for a healthy connection; if it can't
+// connect in 3s something is wrong.
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL!,
+  connectionTimeoutMillis: 3_000,
+  idleTimeoutMillis: 30_000,
+  max: 10,
+});
+
+const adapter = new PrismaPg(pool);
 export const prisma = new PrismaClient({ adapter });
 
 // Invalidation threshold: 30 days

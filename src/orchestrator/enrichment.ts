@@ -9,6 +9,7 @@ import {
   synthesizeCompanyProfile,
   resolveCompanyDomain,
 } from "../agents/synthesis.js";
+import { JOB_POSTING_LIMIT } from "../data/exa.js";
 import type { CompanyIntelligence } from "../types/index.js";
 
 const isDev = process.env.NODE_ENV !== "production";
@@ -48,6 +49,7 @@ function buildHeadcountHistory(
 
 function buildJobPostingVelocity(snapshots: SnapshotRow[]): {
   currentCount: number;
+  capped?: boolean;
   previousCount?: number;
   changePercent?: number;
   trend: "growing" | "stable" | "declining" | "unknown";
@@ -66,8 +68,11 @@ function buildJobPostingVelocity(snapshots: SnapshotRow[]): {
       Date.now() - s.snapshotDate.getTime() > 14 * 24 * 60 * 60 * 1000,
   );
 
+  // Derive capped from stored count — no extra DB column needed
+  const capped = currentCount >= JOB_POSTING_LIMIT;
+
   if (!baseline) {
-    return { currentCount, trend: "unknown", asOf };
+    return { currentCount, capped, trend: "unknown", asOf };
   }
 
   const previousCount = baseline.jobPostingCount!;
@@ -87,6 +92,7 @@ function buildJobPostingVelocity(snapshots: SnapshotRow[]): {
 
   return {
     currentCount,
+    capped,
     previousCount,
     changePercent: changePercent !== undefined ? Math.round(changePercent * 10) / 10 : undefined,
     trend,
@@ -150,6 +156,7 @@ export const enrichCompany = async (
   let intelligence: CompanyIntelligence | null = null;
   let jobPostingCount: number | undefined;
 
+
   if (!forceRefresh) {
     intelligence = await getCachedCompanyData(cacheKey);
     if (intelligence) {
@@ -162,7 +169,7 @@ export const enrichCompany = async (
     if (isDev) console.log(`[Orchestrator] Synthesizing intelligence via Exa + Grok...`);
     const result = await synthesizeCompanyProfile(query, location);
     intelligence = result.intelligence;
-    jobPostingCount = result.jobPostingCount;
+    jobPostingCount = result.jobPosting.count;
 
     // Use the synthesized domain as the canonical cache key when available —
     // it is more accurate than the pre-resolved one (e.g. Clearbit guessing wrong TLD).
@@ -183,12 +190,14 @@ export const enrichCompany = async (
     );
   }
 
-  // 3. Save a snapshot if enough time has passed since the last one
+  // 3. Read snapshot history (fails fast — 3s PG connection timeout)
   const snapshots = await getSnapshotHistory(cacheKey);
   const latestSnapshot = snapshots[0];
   const shouldSaveSnapshot =
     !latestSnapshot ||
     Date.now() - latestSnapshot.snapshotDate.getTime() > SNAPSHOT_INTERVAL_MS;
+
+  let effectiveSnapshots = snapshots;
 
   if (shouldSaveSnapshot) {
     const headcount = intelligence.firmographics?.employeeCountEstimate;
@@ -198,13 +207,24 @@ export const enrichCompany = async (
         ? jobPostingCount
         : (latestSnapshot?.jobPostingCount ?? undefined);
     const fundingNote = buildFundingNote(intelligence);
-    await saveSnapshot(cacheKey, headcount, countToSave, fundingNote);
-    // Re-fetch snapshots to include the one we just saved
-    const updated = await getSnapshotHistory(cacheKey);
-    intelligence = mergeHistory(intelligence, updated);
-  } else {
-    intelligence = mergeHistory(intelligence, snapshots);
+
+    // Fire-and-forget — snapshot write must never block the response
+    saveSnapshot(cacheKey, headcount, countToSave, fundingNote).catch((err) =>
+      console.error("[Snapshot] Background write failed:", err),
+    );
+
+    // Optimistically prepend the new snapshot so the caller sees it immediately
+    // without a second round-trip to the DB
+    const optimisticRow: SnapshotRow = {
+      snapshotDate: new Date(),
+      headcount: headcount ?? null,
+      jobPostingCount: countToSave ?? null,
+      fundingNote: fundingNote ?? null,
+    };
+    effectiveSnapshots = [optimisticRow, ...snapshots].slice(0, 6);
   }
+
+  intelligence = mergeHistory(intelligence, effectiveSnapshots);
 
   if (isDev) console.log(
     `[Orchestrator] Enrichment complete for: ${cacheKey} | confidence: ${intelligence.dataQuality?.confidenceScore ?? "n/a"}`,

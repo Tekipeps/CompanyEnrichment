@@ -65,6 +65,7 @@ export const HeadcountSnapshotSchema = z.object({
 
 export const JobPostingVelocitySchema = z.object({
   currentCount: z.number(),
+  capped: z.boolean().optional(), // true = real number is likely higher than currentCount
   previousCount: z.number().optional(),
   changePercent: z.number().optional(),
   trend: z.enum(["growing", "stable", "declining", "unknown"]),

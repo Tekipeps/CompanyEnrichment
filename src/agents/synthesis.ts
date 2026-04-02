@@ -5,6 +5,7 @@ import {
   searchKeyPersonnel,
   searchJobPostings,
   type ExaResult,
+  type JobPostingSearchResult,
 } from "../data/exa.js";
 
 const XAI_BASE_URL = "https://api.x.ai/v1";
@@ -182,7 +183,7 @@ function formatResults(results: ExaResult[], label: string): string {
 export const synthesizeCompanyProfile = async (
   query: string,
   location?: string,
-): Promise<{ intelligence: CompanyIntelligence; jobPostingCount: number }> => {
+): Promise<{ intelligence: CompanyIntelligence; jobPosting: JobPostingSearchResult }> => {
   const locationHint = location ? ` located in ${location}` : "";
   const isDomain = query.includes(".");
   const subjectLine = isDomain
@@ -266,7 +267,7 @@ ${formatResults(fundingResults, "Funding")}
 === KEY PERSONNEL SEARCH RESULTS (Exa) ===
 ${formatResults(personnelResults, "Personnel")}
 
-=== JOB POSTING SEARCH RESULTS (Exa — ${jobPostingData.count} results found) ===
+=== JOB POSTING SEARCH RESULTS (Exa — ${jobPostingData.count} unique results${jobPostingData.capped ? ", capped at limit — real total is likely higher" : ""}) ===
 ${jobPostingData.count > 0 ? formatResults(jobPostingData.results, "JobPosting") : "[No job posting results found — omit hiringVelocity or note that no active postings were detected]"}
 
 Extract and structure the company intelligence from the above search results. Use web_search only for fields not covered by the Exa sections above.`;
@@ -301,7 +302,7 @@ Extract and structure the company intelligence from the above search results. Us
     result.firmographics.domain = query;
   }
 
-  return { intelligence: result, jobPostingCount: jobPostingData.count };
+  return { intelligence: result, jobPosting: jobPostingData };
 };
 
 /**
