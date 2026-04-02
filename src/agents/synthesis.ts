@@ -3,6 +3,7 @@ import {
   searchCompanyProfile,
   searchFundingHistory,
   searchKeyPersonnel,
+  searchJobPostings,
   type ExaResult,
 } from "../data/exa.js";
 
@@ -181,7 +182,7 @@ function formatResults(results: ExaResult[], label: string): string {
 export const synthesizeCompanyProfile = async (
   query: string,
   location?: string,
-): Promise<CompanyIntelligence> => {
+): Promise<{ intelligence: CompanyIntelligence; jobPostingCount: number }> => {
   const locationHint = location ? ` located in ${location}` : "";
   const isDomain = query.includes(".");
   const subjectLine = isDomain
@@ -196,10 +197,11 @@ export const synthesizeCompanyProfile = async (
   // ---------------------------------------------------------------------------
   const t1 = Date.now();
 
-  const [profileResults, fundingResults, personnelResults] = await Promise.all([
+  const [profileResults, fundingResults, personnelResults, jobPostingData] = await Promise.all([
     searchCompanyProfile(query, location),
     searchFundingHistory(query),
     searchKeyPersonnel(query),
+    searchJobPostings(query),
   ]);
 
   if (isDev)
@@ -240,6 +242,9 @@ MANDATORY FIELDS — these MUST be populated in every response, no exceptions:
   dataQuality.discrepancies:
     List every field where two or more sources disagreed, how you resolved it, and which source you trusted. Return [] only if there are genuinely no conflicts.
 
+  growthSignals.hiringVelocity:
+    If job posting results are present, summarize hiring activity: approximate number of open roles found, key departments or role types (e.g. "~12 open roles; heavy hiring in Engineering and Go-to-Market"). If no results, omit this field.
+
 For any other field that cannot be determined from the search results, omit it or leave it null — do NOT fabricate data.
 
 OUTPUT HYGIENE:
@@ -260,6 +265,9 @@ ${formatResults(fundingResults, "Funding")}
 
 === KEY PERSONNEL SEARCH RESULTS (Exa) ===
 ${formatResults(personnelResults, "Personnel")}
+
+=== JOB POSTING SEARCH RESULTS (Exa — ${jobPostingData.count} results found) ===
+${jobPostingData.count > 0 ? formatResults(jobPostingData.results, "JobPosting") : "[No job posting results found — omit hiringVelocity or note that no active postings were detected]"}
 
 Extract and structure the company intelligence from the above search results. Use web_search only for fields not covered by the Exa sections above.`;
 
@@ -293,7 +301,7 @@ Extract and structure the company intelligence from the above search results. Us
     result.firmographics.domain = query;
   }
 
-  return result;
+  return { intelligence: result, jobPostingCount: jobPostingData.count };
 };
 
 /**

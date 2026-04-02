@@ -47,3 +47,11 @@ export async function searchKeyPersonnel(query: string): Promise<ExaResult[]> {
   );
   return mapResults(results);
 }
+
+export async function searchJobPostings(query: string): Promise<{ count: number; results: ExaResult[] }> {
+  const { results } = await exa.search(
+    `${query} open positions hiring careers jobs site:greenhouse.io OR site:lever.co OR site:jobs.ashbyhq.com`,
+    { numResults: 10 },
+  );
+  return { count: results.length, results: mapResults(results) };
+}

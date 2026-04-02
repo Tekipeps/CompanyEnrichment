@@ -5,7 +5,7 @@ import type { CompanyIntelligence } from "../types/index.js";
 const isDev = process.env.NODE_ENV !== "production";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
+export const prisma = new PrismaClient({ adapter });
 
 // Invalidation threshold: 30 days
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -60,5 +60,68 @@ export const saveCompanyData = async (
     if (isDev) console.log(`[Cache] Saved data for ${domain}`);
   } catch (error) {
     console.error("[Cache Error] Failed to save data:", error);
+  }
+};
+
+// ---- Snapshot helpers -------------------------------------------------------
+
+export type SnapshotRow = {
+  snapshotDate: Date;
+  headcount: string | null;
+  jobPostingCount: number | null;
+  fundingNote: string | null;
+};
+
+export const saveSnapshot = async (
+  domain: string,
+  headcount: string | undefined,
+  jobPostingCount: number | undefined,
+  fundingNote: string | undefined,
+): Promise<void> => {
+  try {
+    await prisma.companySnapshot.create({
+      data: {
+        domain,
+        headcount: headcount ?? null,
+        jobPostingCount: jobPostingCount ?? null,
+        fundingNote: fundingNote ?? null,
+      },
+    });
+    if (isDev) console.log(`[Snapshot] Saved snapshot for ${domain}`);
+  } catch (error) {
+    console.error("[Snapshot Error] Failed to save snapshot:", error);
+  }
+};
+
+export const getSnapshotHistory = async (domain: string): Promise<SnapshotRow[]> => {
+  try {
+    return await prisma.companySnapshot.findMany({
+      where: { domain },
+      orderBy: { snapshotDate: "desc" },
+      take: 6,
+      select: {
+        snapshotDate: true,
+        headcount: true,
+        jobPostingCount: true,
+        fundingNote: true,
+      },
+    });
+  } catch (error) {
+    console.error("[Snapshot Error] Failed to retrieve history:", error);
+    return [];
+  }
+};
+
+export const getOldestDomains = async (limit: number): Promise<string[]> => {
+  try {
+    const records = await prisma.companyEnrichment.findMany({
+      orderBy: { lastUpdated: "asc" },
+      take: limit,
+      select: { domain: true },
+    });
+    return records.map((r) => r.domain);
+  } catch (error) {
+    console.error("[DB Error] Failed to get oldest domains:", error);
+    return [];
   }
 };

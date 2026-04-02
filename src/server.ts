@@ -30,7 +30,7 @@ export async function startServer(): Promise<void> {
   // This is safe because our tools are stateless (no shared mutable state)
   app.post(
     "/mcp",
-    // createContextMiddleware({}),
+    createContextMiddleware({}),
     async (req: Request, res: Response) => {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined, // stateless mode

@@ -58,6 +58,19 @@ export const DataQualitySchema = z.object({
 
 export type DataQuality = z.infer<typeof DataQualitySchema>;
 
+export const HeadcountSnapshotSchema = z.object({
+  date: z.string(),
+  estimate: z.string(),
+});
+
+export const JobPostingVelocitySchema = z.object({
+  currentCount: z.number(),
+  previousCount: z.number().optional(),
+  changePercent: z.number().optional(),
+  trend: z.enum(["growing", "stable", "declining", "unknown"]),
+  asOf: z.string(),
+});
+
 export const ENRICH_COMPANY_OUTPUT = z.object({
   firmographics: FirmographicsSchema,
   fundingHistory: z.array(FundingRoundSchema),
@@ -65,6 +78,8 @@ export const ENRICH_COMPANY_OUTPUT = z.object({
   growthSignals: GrowthSignalsSchema.optional(),
   synthesis: z.string(),
   dataQuality: DataQualitySchema,
+  headcountHistory: z.array(HeadcountSnapshotSchema).optional(),
+  jobPostingVelocity: JobPostingVelocitySchema.optional(),
 });
 
 export type CompanyIntelligence = z.infer<typeof ENRICH_COMPANY_OUTPUT>;
