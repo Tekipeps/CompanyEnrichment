@@ -3,6 +3,7 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerCompanyEnrichmentTool } from "./tools/enrich-company.js";
+import { registerCompanyComparisonTool } from "./tools/compare-companies.js";
 import type { Request, Response } from "express";
 import { rateLimiter } from "./middleware/rateLimit.js";
 import { rapidApiAuth } from "./middleware/rapidApi.js";
@@ -18,6 +19,7 @@ export function createServer(): McpServer {
   });
 
   registerCompanyEnrichmentTool(server);
+  registerCompanyComparisonTool(server);
 
   return server;
 }

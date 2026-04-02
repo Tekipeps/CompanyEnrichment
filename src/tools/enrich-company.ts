@@ -16,12 +16,12 @@ export function registerCompanyEnrichmentTool(server: McpServer): void {
   server.registerTool(
     TOOL_NAME,
     {
-      description: `Enriches any company with firmographics, funding history, key personnel, and growth signals using live web data. Accepts a company name or domain and returns structured intelligence including industry, headcount, headquarters, founded year, funding rounds with investors, C-suite team with LinkedIn URLs, hiring velocity, and a 2-3 sentence executive synthesis.
+      description: `Enriches any company with firmographics, funding history, key personnel, growth signals, and Google search-interest momentum using live web data. Accepts a company name or domain and returns structured intelligence including industry, headcount, headquarters, founded year, funding rounds with investors, C-suite team with LinkedIn URLs, hiring velocity, search-interest trend, and a 2-3 sentence executive synthesis.
 
 Features:
 - Accepts company name OR domain; auto-resolves product names to parent company (e.g. "jira" returns atlassian.com data)
 - Live Exa web search for fresh data on every cache miss; 30-day intelligent cache for repeat calls
-- Structured output: firmographics, funding rounds, key personnel with LinkedIn URLs, growth signals, data quality score
+- Structured output: firmographics, funding rounds, key personnel with LinkedIn URLs, growth signals, search-interest trend, data quality score
 - Source weighting: official site > LinkedIn > news outlets > aggregators; discrepancies logged with resolution
 - Confidence score (0-1) and sources list included on every response
 
@@ -32,7 +32,6 @@ Try asking:
 - "Give me a full company profile for linear.app"
 - "What growth signals exist for Zapier — hiring, funding, recent launches?"
 - "Who founded Retool and what is their total funding?"
-- "Compare the founding year and headquarters of Figma vs Canva"
 - "Is monday.com publicly listed? What is their ARR?"
 - "Find the CEO and CTO of a Nigerian fintech called Paystack"
 

@@ -80,6 +80,7 @@ export type SnapshotRow = {
   snapshotDate: Date;
   headcount: string | null;
   jobPostingCount: number | null;
+  searchInterestScore: number | null;
   fundingNote: string | null;
 };
 
@@ -87,6 +88,7 @@ export const saveSnapshot = async (
   domain: string,
   headcount: string | undefined,
   jobPostingCount: number | undefined,
+  searchInterestScore: number | undefined,
   fundingNote: string | undefined,
 ): Promise<void> => {
   try {
@@ -95,6 +97,7 @@ export const saveSnapshot = async (
         domain,
         headcount: headcount ?? null,
         jobPostingCount: jobPostingCount ?? null,
+        searchInterestScore: searchInterestScore ?? null,
         fundingNote: fundingNote ?? null,
       },
     });
@@ -114,6 +117,7 @@ export const getSnapshotHistory = async (domain: string): Promise<SnapshotRow[]>
         snapshotDate: true,
         headcount: true,
         jobPostingCount: true,
+        searchInterestScore: true,
         fundingNote: true,
       },
     });

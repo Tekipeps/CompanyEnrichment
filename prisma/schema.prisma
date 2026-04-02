@@ -22,12 +22,13 @@ model CompanyEnrichment {
 }
 
 model CompanySnapshot {
-  id              String   @id @default(cuid())
-  domain          String
-  snapshotDate    DateTime @default(now())
-  headcount       String?  // raw string from firmographics.employeeCountEstimate
-  jobPostingCount Int?     // count of Exa job posting results
-  fundingNote     String?  // e.g. "Series C · $120M total"
+  id                  String   @id @default(cuid())
+  domain              String
+  snapshotDate        DateTime @default(now())
+  headcount           String?  // raw string from firmographics.employeeCountEstimate
+  jobPostingCount     Int?     // count of Exa job posting results
+  searchInterestScore Int?     // latest Google Trends score (0-100)
+  fundingNote         String?  // e.g. "Series C · $120M total"
 
   @@index([domain, snapshotDate])
 }
